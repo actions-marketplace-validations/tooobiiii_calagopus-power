@@ -1,7 +1,7 @@
-name: Modern Pterodactyl Power
+name: Calagopus Power
 description:
   An action that is built with a modern design, targeting the latest versions of
-  the Pterodactyl API.
+  the Calagopus API.
 author: tooobiiii
 
 # Add your action's branding here. This will appear on the GitHub Marketplace.
@@ -12,11 +12,11 @@ branding:
 # Define your inputs here.
 inputs:
   panel-url:
-    description: The URL of your Pterodactyl panel. (https://panel.example.com)
+    description: The URL of your Calagopus panel. (https://panel.example.com)
     required: true
 
   bearer-token:
-    description: A Pterodactyl client API key (ptlc_...).
+    description: A Calagopus client API key (c7sp_...).
     required: true
 
   server-id:

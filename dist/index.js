@@ -28468,9 +28468,9 @@ function info(message) {
 }
 
 /**
- * Power signals accepted by the Pterodactyl client API.
+ * Power signals accepted by the Calagopus client API.
  *
- * @see https://pterodactyl-api-docs.netvpx.com/docs/api/client/servers#power-management
+ * @see https://github.com/calagopus/panel/blob/main/backend/src/routes/api/client/servers/_server_/power.rs
  */
 const PowerSignals = Object.freeze({
   START: 'start',
@@ -28504,11 +28504,12 @@ function parsePowerSignal(value) {
 }
 
 /**
- * Pterodactyl accepts both the short identifier (`d3aac109`) and the full
- * server UUID. Both are alphanumeric with dashes, so anything else is either a
- * typo or an attempt to break out of the API path.
+ * Calagopus accepts both the short identifier (`d3aac109`, eight hex digits)
+ * and the full server UUID. Anything else is either a typo or an attempt to
+ * break out of the API path.
  */
-const SERVER_ID_PATTERN = /^[A-Za-z0-9-]+$/;
+const SERVER_ID_PATTERN =
+  /^[0-9a-f]{8}(?:-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?$/i;
 
 /**
  * @typedef {object} ActionInputs
@@ -28583,15 +28584,15 @@ function parseServerId(value) {
 
   if (!SERVER_ID_PATTERN.test(serverId)) {
     throw new Error(
-      `"server-id" must be a Pterodactyl server identifier or UUID, received "${value}".`
+      `"server-id" must be a Calagopus server identifier or UUID, received "${value}".`
     )
   }
 
   return serverId
 }
 
-/** The client API is versioned through the Accept header, not the path. */
-const ACCEPT_HEADER = 'application/vnd.pterodactyl.v1+json';
+/** The client API speaks plain JSON and is not versioned through headers. */
+const ACCEPT_HEADER = 'application/json';
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const DEFAULT_RETRIES = 2;
@@ -28612,18 +28613,18 @@ const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
  */
 
 /**
- * @typedef {object} PterodactylClient
+ * @typedef {object} CalagopusClient
  * @property {(serverId: string, signal: string) => Promise<void>} sendPowerSignal
  * @property {(serverId: string) => Promise<string>} getServerState
  */
 
 /**
- * Creates a client for the Pterodactyl client API.
+ * Creates a client for the Calagopus client API.
  *
  * @param {ClientOptions} options Connection and resilience options.
- * @returns {PterodactylClient} The client.
+ * @returns {CalagopusClient} The client.
  */
-function createPterodactylClient({
+function createCalagopusClient({
   panelUrl,
   bearerToken,
   fetchImpl = fetch,
@@ -28668,12 +28669,12 @@ function createPterodactylClient({
 
         if (response.ok) return response
 
-        throw new PterodactylApiError(
+        throw new CalagopusApiError(
           await describeErrorResponse(response),
           response.status
         )
       } catch (error) {
-        const isApiError = error instanceof PterodactylApiError;
+        const isApiError = error instanceof CalagopusApiError;
 
         lastError = isApiError
           ? error
@@ -28692,7 +28693,8 @@ function createPterodactylClient({
 
   return {
     /**
-     * Sends a power signal to a server. The panel answers `204 No Content`.
+     * Sends a power signal to a server. The panel only answers once Wings
+     * accepted the action, with an empty `200 OK` object.
      *
      * @param {string} serverId Server identifier or UUID.
      * @param {string} signal One of `start`, `stop`, `restart` or `kill`.
@@ -28701,7 +28703,7 @@ function createPterodactylClient({
     async sendPowerSignal(serverId, signal) {
       await request(`/api/client/servers/${serverId}/power`, {
         method: 'POST',
-        body: JSON.stringify({ signal })
+        body: JSON.stringify({ action: signal })
       });
     },
 
@@ -28717,20 +28719,20 @@ function createPterodactylClient({
       );
       const body = await response.json();
 
-      return body?.attributes?.current_state ?? 'unknown'
+      return body?.resources?.state ?? 'unknown'
     }
   }
 }
 
 /** An error carrying the HTTP status the panel replied with. */
-class PterodactylApiError extends Error {
+class CalagopusApiError extends Error {
   /**
    * @param {string} message Human readable description.
    * @param {number} status The HTTP status code.
    */
   constructor(message, status) {
     super(message);
-    this.name = 'PterodactylApiError';
+    this.name = 'CalagopusApiError';
     this.status = status;
   }
 }
@@ -28738,14 +28740,14 @@ class PterodactylApiError extends Error {
 /**
  * Turns an error response into a message worth putting in a workflow log.
  *
- * Pterodactyl reports failures as `{ errors: [{ code, status, detail }] }`.
+ * Calagopus reports failures as `{ errors: ["message", ...] }`.
  *
  * @param {Response} response The failed response.
  * @returns {Promise<string>} A human readable description.
  */
 async function describeErrorResponse(response) {
   const prefix =
-    `Pterodactyl API responded with ${response.status} ${response.statusText}`.trimEnd();
+    `Calagopus API responded with ${response.status} ${response.statusText}`.trimEnd();
   const hint = HINTS_BY_STATUS[response.status];
   const detail = await readErrorDetail(response);
 
@@ -28756,9 +28758,10 @@ async function describeErrorResponse(response) {
 }
 
 const HINTS_BY_STATUS = {
-  401: 'Check that "bearer-token" is a client API key (ptlc_...) created under Account → API Credentials',
-  403: 'Client API keys start with "ptlc_"; an application key (ptla_) will not work here. Otherwise the account lacks the Control permission on this server',
+  401: 'Check that "bearer-token" is a client API key (c7sp_...) created under Account → API Keys',
+  403: 'Check that the API key is enabled, allows the runner\'s IP address and grants the "control" permissions for this server',
   404: 'Check "server-id" and that the key belongs to an account with access to it',
+  409: 'The server cannot be controlled right now, e.g. because it is suspended, installing, restoring a backup or being transferred',
   429: 'The panel is rate limiting this API key'
 };
 
@@ -28774,8 +28777,7 @@ async function readErrorDetail(response) {
 
     if (Array.isArray(errors) && errors.length > 0) {
       return errors
-        .map((error) => error.detail || error.code)
-        .filter(Boolean)
+        .filter((error) => typeof error === 'string' && error !== '')
         .join('; ')
     }
   } catch {
@@ -28805,7 +28807,7 @@ async function run() {
     // Keep the key out of the logs, even if a later error echoes it back.
     setSecret(bearerToken);
 
-    const client = createPterodactylClient({ panelUrl, bearerToken });
+    const client = createCalagopusClient({ panelUrl, bearerToken });
 
     info(`Sending "${signal}" to server ${serverId} on ${panelUrl}...`);
     await client.sendPowerSignal(serverId, signal);
@@ -28825,7 +28827,7 @@ async function run() {
  * Reads the resulting server state. The power signal has already been
  * delivered at this point, so a failure here is reported but not fatal.
  *
- * @param {import('./pterodactyl.js').PterodactylClient} client The API client.
+ * @param {import('./calagopus.js').CalagopusClient} client The API client.
  * @param {string} serverId Server identifier or UUID.
  * @returns {Promise<string>} The state, or an empty string if it is unknown.
  */

@@ -1,20 +1,21 @@
 {
-  "name": "modern-pterodactyl-power",
-  "description": "GitHub Action to send power signals to a Pterodactyl server",
+  "name": "calagopus-power",
+  "description": "GitHub Action to send power signals to a Calagopus server",
   "version": "0.0.0",
   "author": "tooobiiii",
   "type": "module",
   "private": true,
-  "homepage": "https://github.com/tooobiiii/modern-pterodactyl-power#readme",
+  "homepage": "https://github.com/tooobiiii/calagopus-power#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/tooobiiii/modern-pterodactyl-power.git"
+    "url": "git+https://github.com/tooobiiii/calagopus-power.git"
   },
   "bugs": {
-    "url": "https://github.com/tooobiiii/modern-pterodactyl-power/issues"
+    "url": "https://github.com/tooobiiii/calagopus-power/issues"
   },
   "keywords": [
     "actions",
+    "calagopus",
     "pterodactyl",
     "game-server"
   ],

@@ -1,12 +1,12 @@
 /**
- * Unit tests for src/pterodactyl.js
+ * Unit tests for src/calagopus.js
  */
 import { jest } from '@jest/globals'
 import * as core from '../__fixtures__/core.js'
 
 jest.unstable_mockModule('@actions/core', () => core)
 
-const { createPterodactylClient } = await import('../src/pterodactyl.js')
+const { createCalagopusClient } = await import('../src/calagopus.js')
 
 /**
  * Builds a minimal stand-in for a `fetch` Response.
@@ -18,7 +18,7 @@ const { createPterodactylClient } = await import('../src/pterodactyl.js')
  * @param {unknown} [options.json] Body to serialize as JSON.
  * @returns {object} The fake response.
  */
-function response({ status = 204, statusText = '', body = '', json }) {
+function response({ status = 200, statusText = '', body = '', json }) {
   const text = json === undefined ? body : JSON.stringify(json)
 
   return {
@@ -36,9 +36,9 @@ function response({ status = 204, statusText = '', body = '', json }) {
  * @returns {object} A client wired to the stub.
  */
 function createClient(fetchImpl, overrides = {}) {
-  return createPterodactylClient({
+  return createCalagopusClient({
     panelUrl: 'https://panel.example.com',
-    bearerToken: 'ptlc_token',
+    bearerToken: 'c7sp_token',
     fetchImpl,
     sleepImpl: jest.fn().mockResolvedValue(undefined),
     retryDelayMs: 0,
@@ -46,10 +46,12 @@ function createClient(fetchImpl, overrides = {}) {
   })
 }
 
-describe('pterodactyl.js', () => {
+describe('calagopus.js', () => {
   describe('sendPowerSignal', () => {
     it('posts the signal to the power endpoint', async () => {
-      const fetchImpl = jest.fn().mockResolvedValue(response({ status: 204 }))
+      const fetchImpl = jest
+        .fn()
+        .mockResolvedValue(response({ status: 200, json: {} }))
 
       await createClient(fetchImpl).sendPowerSignal('d3aac109', 'restart')
 
@@ -61,10 +63,10 @@ describe('pterodactyl.js', () => {
         'https://panel.example.com/api/client/servers/d3aac109/power'
       )
       expect(init.method).toBe('POST')
-      expect(init.body).toBe('{"signal":"restart"}')
+      expect(init.body).toBe('{"action":"restart"}')
       expect(init.headers).toMatchObject({
-        Authorization: 'Bearer ptlc_token',
-        Accept: 'application/vnd.pterodactyl.v1+json',
+        Authorization: 'Bearer c7sp_token',
+        Accept: 'application/json',
         'Content-Type': 'application/json'
       })
     })
@@ -74,20 +76,13 @@ describe('pterodactyl.js', () => {
         response({
           status: 400,
           statusText: 'Bad Request',
-          json: {
-            errors: [
-              {
-                code: 'HttpException',
-                detail: 'Server is not currently running.'
-              }
-            ]
-          }
+          json: { errors: ['invalid request body', 'unknown variant'] }
         })
       )
 
       await expect(
         createClient(fetchImpl).sendPowerSignal('d3aac109', 'stop')
-      ).rejects.toThrow('Server is not currently running')
+      ).rejects.toThrow('invalid request body; unknown variant')
 
       expect(fetchImpl).toHaveBeenCalledTimes(1)
     })
@@ -97,21 +92,30 @@ describe('pterodactyl.js', () => {
         response({
           status: 403,
           statusText: 'Forbidden',
-          json: {
-            errors: [
-              {
-                code: 'HttpException',
-                // The panel punctuates its own details.
-                detail: 'You are attempting to use an application API key.'
-              }
-            ]
-          }
+          // A proxy or plugin may punctuate its own messages.
+          json: { errors: ['api key is disabled.'] }
         })
       )
 
       await expect(
         createClient(fetchImpl).sendPowerSignal('d3aac109', 'restart')
-      ).rejects.toThrow(/application API key\. Client API keys/)
+      ).rejects.toThrow(/api key is disabled\. Check that the API key/)
+    })
+
+    it('explains why a server cannot be controlled right now', async () => {
+      const fetchImpl = jest.fn().mockResolvedValue(
+        response({
+          status: 409,
+          statusText: 'Conflict',
+          json: { errors: ['server is suspended'] }
+        })
+      )
+
+      await expect(
+        createClient(fetchImpl).sendPowerSignal('d3aac109', 'start')
+      ).rejects.toThrow(/server is suspended\. The server cannot be controlled/)
+
+      expect(fetchImpl).toHaveBeenCalledTimes(1)
     })
 
     it('adds a hint when the API key is rejected', async () => {
@@ -123,7 +127,7 @@ describe('pterodactyl.js', () => {
 
       await expect(
         createClient(fetchImpl).sendPowerSignal('d3aac109', 'start')
-      ).rejects.toThrow(/client API key \(ptlc_\.\.\.\)/)
+      ).rejects.toThrow(/client API key \(c7sp_\.\.\.\)/)
     })
 
     it('retries transient failures', async () => {
@@ -132,7 +136,7 @@ describe('pterodactyl.js', () => {
         .mockResolvedValueOnce(
           response({ status: 503, statusText: 'Unavailable' })
         )
-        .mockResolvedValueOnce(response({ status: 204 }))
+        .mockResolvedValueOnce(response({ status: 200, json: {} }))
 
       await createClient(fetchImpl).sendPowerSignal('d3aac109', 'start')
 
@@ -156,7 +160,7 @@ describe('pterodactyl.js', () => {
       const fetchImpl = jest.fn().mockResolvedValue(
         response({
           status: 200,
-          json: { attributes: { current_state: 'running' } }
+          json: { resources: { state: 'running', uptime: 1234 } }
         })
       )
 
